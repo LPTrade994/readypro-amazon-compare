@@ -10,8 +10,8 @@ st.title("Price Monitoring App per HDGaming.it")
 st.markdown("Confronta i prezzi dei prodotti di Ready Pro con quelli attuali di Amazon (Keepa)")
 
 st.sidebar.header("Caricamento File")
-# Carica il file Ready Pro (CSV)
-ready_pro_file = st.sidebar.file_uploader("Carica file CSV Ready Pro", type=["csv"])
+# Carica il file Ready Pro (XLS o XLSX)
+ready_pro_file = st.sidebar.file_uploader("Carica file Ready Pro (XLS o XLSX)", type=["xls", "xlsx"])
 # Carica il file Keepa (Excel o CSV)
 keepa_file = st.sidebar.file_uploader("Carica file Keepa (Excel o CSV)", type=["xlsx", "csv"])
 
@@ -33,9 +33,12 @@ def parse_price(price_str):
 if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
-        # Utilizziamo l'auto-detection del delimitatore (sep=None, engine="python")
-        df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
-        # Rimuovo eventuali spazi indesiderati nei nomi delle colonne
+        # Se il file Ready Pro è in formato Excel, lo leggiamo con read_excel
+        if ready_pro_file.name.endswith(('.xls', '.xlsx')):
+            df_ready = pd.read_excel(ready_pro_file)
+        else:
+            df_ready = pd.read_csv(ready_pro_file)
+        # Pulizia dei nomi delle colonne (rimozione di eventuali spazi)
         df_ready.columns = df_ready.columns.str.strip()
         st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
@@ -53,33 +56,28 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Mapping delle colonne per Ready Pro
-    # Adattiamo il mapping in base alle colonne presenti.
-    # Nel tuo esempio, le colonne presenti sono: "Descrizione" e "Cod.Barre"
-    if "Cod.Barre" in df_ready.columns:
-        df_ready.rename(columns={"Cod.Barre": "ASIN"}, inplace=True)
+    # Il file Ready Pro (secondo il tuo esempio) ha le seguenti colonne:
+    # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
+    # Effettuiamo il mapping:
+    if "Codice(ASIN)" in df_ready.columns:
+        df_ready.rename(columns={"Codice(ASIN)": "ASIN"}, inplace=True)
     else:
-        st.error("Il file Ready Pro non contiene la colonna 'Cod.Barre' necessaria per l'ASIN.")
+        st.error("Il file Ready Pro non contiene la colonna 'Codice(ASIN)' necessaria per l'ASIN.")
     
-    if "Descrizione" in df_ready.columns:
-        df_ready.rename(columns={"Descrizione": "Nome prodotto"}, inplace=True)
-    
-    # Se esiste la colonna 'Prezzo', rinominala; altrimenti segnala l'errore
-    if "Prezzo" in df_ready.columns:
-        df_ready.rename(columns={"Prezzo": "Prezzo di vendita attuale"}, inplace=True)
+    if "Descrizione sul marketplace" in df_ready.columns:
+        df_ready.rename(columns={"Descrizione sul marketplace": "Nome prodotto"}, inplace=True)
     else:
-        st.error("Il file Ready Pro non contiene la colonna 'Prezzo'. È necessaria per il calcolo.")
+        st.error("Il file Ready Pro non contiene la colonna 'Descrizione sul marketplace' per il nome prodotto.")
     
-    # Se esiste la colonna "Quantita'", rinominala; altrimenti crea una colonna con NaN
     if "Quantita'" in df_ready.columns:
         df_ready.rename(columns={"Quantita'": "Quantita"}, inplace=True)
     else:
         df_ready["Quantita"] = np.nan
-
-    # Verifica che le colonne critiche siano presenti
-    if "ASIN" not in df_ready.columns:
-        st.error("Il file Ready Pro non contiene la colonna ASIN.")
-    if "Prezzo di vendita attuale" not in df_ready.columns:
-        st.error("Il file Ready Pro non contiene la colonna 'Prezzo di vendita attuale'.")
+    
+    if "Prezzo" in df_ready.columns:
+        df_ready.rename(columns={"Prezzo": "Prezzo di vendita attuale"}, inplace=True)
+    else:
+        st.error("Il file Ready Pro non contiene la colonna 'Prezzo' necessaria per il prezzo di vendita attuale.")
     
     ### Parsing del prezzo in Ready Pro
     try:
@@ -94,7 +92,6 @@ if ready_pro_file is not None and keepa_file is not None:
     else:
         st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa.")
     
-    # Verifica che il file Keepa contenga la colonna "ASIN"
     if "ASIN" not in df_keepa.columns:
         st.error("Il file Keepa non contiene la colonna 'ASIN'.")
     else:
