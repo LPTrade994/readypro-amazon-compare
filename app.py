@@ -33,8 +33,10 @@ def parse_price(price_str):
 if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
-        # Il file Ready Pro, secondo l'esempio, è separato da tab (\t)
+        # Il file Ready Pro, secondo l'esempio, è separato da tab
         df_ready = pd.read_csv(ready_pro_file, sep='\t')
+        # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
+        df_ready.columns = df_ready.columns.str.strip()
     except Exception as e:
         st.error("Errore nella lettura del file Ready Pro: " + str(e))
     
@@ -45,11 +47,13 @@ if ready_pro_file is not None and keepa_file is not None:
         else:
             # Se il file Keepa è CSV, proviamo a usare anche qui il separatore tab
             df_keepa = pd.read_csv(keepa_file, sep='\t')
+        # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
+        df_keepa.columns = df_keepa.columns.str.strip()
     except Exception as e:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Rinomina delle colonne del file Ready Pro
-    # Il file Ready Pro ha le colonne: 
+    # Le colonne attese in Ready Pro sono:
     # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
     df_ready.rename(columns={
         "Codice(ASIN)": "ASIN",
