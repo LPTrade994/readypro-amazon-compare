@@ -7,55 +7,86 @@ import io
 # Configurazione della pagina
 st.set_page_config(page_title="Price Monitoring App per HDGaming.it", layout="wide")
 
-# Titolo dell'applicazione
 st.title("Price Monitoring App per HDGaming.it")
-st.markdown("Confronta i prezzi dei prodotti presenti su Ready Pro con quelli attuali di Amazon (Keepa)")
+st.markdown("Confronta i prezzi dei prodotti di Ready Pro con quelli attuali di Amazon (Keepa)")
 
-# Sidebar: caricamento dei file CSV
-st.sidebar.header("Caricamento File CSV")
+st.sidebar.header("Caricamento File")
+# Caricamento file Ready Pro (CSV)
 ready_pro_file = st.sidebar.file_uploader("Carica file CSV Ready Pro", type=["csv"])
-keepa_file = st.sidebar.file_uploader("Carica file CSV Keepa", type=["csv"])
+# Caricamento file Keepa (Excel o CSV)
+keepa_file = st.sidebar.file_uploader("Carica file Keepa (Excel o CSV)", type=["xlsx", "csv"])
 
 if ready_pro_file is not None and keepa_file is not None:
+    ### Lettura del file Ready Pro (CSV)
     try:
-        # Lettura dei CSV
         df_ready = pd.read_csv(ready_pro_file)
-        df_keepa = pd.read_csv(keepa_file)
     except Exception as e:
-        st.error("Errore nella lettura dei file CSV: " + str(e))
+        st.error("Errore nella lettura del file Ready Pro: " + str(e))
     
-    # Controlla che la colonna per il merge sia presente
-    if "Codice(ASIN)" not in df_ready.columns:
-        st.error("Il file Ready Pro deve contenere la colonna 'Codice(ASIN)'.")
-    elif "ASIN" not in df_keepa.columns:
-        st.error("Il file Keepa deve contenere la colonna 'ASIN'.")
+    ### Lettura del file Keepa
+    try:
+        if keepa_file.name.endswith('.xlsx'):
+            df_keepa = pd.read_excel(keepa_file)
+        else:
+            df_keepa = pd.read_csv(keepa_file)
+    except Exception as e:
+        st.error("Errore nella lettura del file Keepa: " + str(e))
+    
+    ### Rinomina delle colonne del file Ready Pro
+    # In questo esempio, assumiamo che il file Ready Pro contenga le seguenti colonne:
+    # "Codice(ASIN)", "Descrizione sul marketplace", "Quantita'", "Prezzo", ...
+    df_ready.rename(columns={
+        "Codice(ASIN)": "ASIN",
+        "Descrizione sul marketplace": "Nome prodotto",
+        "Quantita'": "Quantita",
+        "Prezzo": "Prezzo di vendita attuale"
+    }, inplace=True)
+    
+    ### Gestione del file Keepa
+    # Nella struttura da te fornita, il file Keepa ha colonne come:
+    # "Locale", "Title", "Bought in past month", "Buy Box: Current", "Amazon: Current", 
+    # "Amazon: Is Lowest 90 days", "Amazon: Amazon offer shipping delay", "New: Current", "ASIN", ...
+    #
+    # In questo esempio, useremo la colonna "Buy Box: Current" per ottenere il prezzo attuale su Amazon.
+    
+    def parse_price(price_str):
+        """
+        Converte una stringa di prezzo tipo "33,80 €" in float (es. 33.80).
+        Se il valore è NaN o non convertibile, restituisce np.nan.
+        """
+        try:
+            if pd.isna(price_str):
+                return np.nan
+            # Converti in stringa (nel caso il dato non sia già stringa)
+            price_str = str(price_str)
+            # Rimuovi il simbolo dell'euro e gli spazi
+            price_str = price_str.replace('€', '').strip()
+            # Sostituisci la virgola con il punto
+            price_str = price_str.replace(',', '.')
+            return float(price_str)
+        except Exception as e:
+            return np.nan
+    
+    # Controlla se la colonna "Buy Box: Current" è presente e crea la colonna "Prezzo attuale su Amazon"
+    if "Buy Box: Current" in df_keepa.columns:
+        df_keepa["Prezzo attuale su Amazon"] = df_keepa["Buy Box: Current"].apply(parse_price)
     else:
-        # Rinominiamo le colonne di Ready Pro per uniformarle
-        df_ready.rename(columns={
-            "Codice(ASIN)": "ASIN",
-            "Quantita'": "Quantita",
-            "Prezzo": "Prezzo di vendita attuale",
-            "Descrizione sul marketplace": "Nome prodotto"
-        }, inplace=True)
-        
-        # Esempio: visualizziamo le colonne disponibili (puoi aggiungere altre colonne se necessario)
-        # Le colonne principali in Ready Pro ora sono: Sito, Stato, ASIN, Nome prodotto, SKU, Descrizione, Quantita, Prezzo di vendita attuale
-        
-        # Merge dei DataFrame utilizzando la colonna "ASIN"
+        st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa. Modifica l'esportazione o aggiorna il mapping.")
+    
+    # Verifica che il file Keepa contenga la colonna "ASIN" per effettuare il merge
+    if "ASIN" not in df_keepa.columns:
+        st.error("La colonna 'ASIN' non è presente nel file Keepa.")
+    else:
+        ### Merge dei DataFrame sulla colonna "ASIN"
         df = pd.merge(df_ready, df_keepa, on="ASIN", how="inner")
         
-        # Calcolo della variazione percentuale:
-        # Formula: ((Prezzo attuale su Amazon - Prezzo di vendita attuale) / Prezzo di vendita attuale) * 100
+        ### Calcolo della variazione percentuale
         try:
             df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) / df["Prezzo di vendita attuale"]) * 100
         except Exception as e:
             st.error("Errore nel calcolo della differenza percentuale: " + str(e))
         
-        # Definizione dello "Stato" del prodotto in base alla differenza percentuale
-        # Logica di esempio (modifica le soglie se necessario):
-        #   - Se la differenza % è inferiore a -10: "Fuori Mercato"
-        #   - Se la differenza % è compresa tra -10 e 0: "Margine Insufficiente"
-        #   - Altrimenti: "Competitivo"
+        ### Definizione dello stato del prodotto
         def calcola_stato(diff):
             if diff < -10:
                 return "Fuori Mercato"
@@ -63,80 +94,35 @@ if ready_pro_file is not None and keepa_file is not None:
                 return "Margine Insufficiente"
             else:
                 return "Competitivo"
-        
         df["Stato Prodotto"] = df["Differenza %"].apply(calcola_stato)
         
+        ### Visualizzazione dei dati analizzati
         st.subheader("Dati Analizzati")
+        colonne_visualizzate = ["ASIN", "Nome prodotto", "Quantita", "Prezzo di vendita attuale", 
+                                 "Prezzo attuale su Amazon", "Differenza %", "Stato Prodotto"]
+        st.dataframe(df[colonne_visualizzate])
         
-        ### Filtri interattivi nella sidebar ###
-        
-        # Filtro per Sito (marketplace)
-        siti = df["Sito"].unique().tolist()
-        sito_selezionato = st.sidebar.multiselect("Filtra per Sito", options=siti, default=siti)
-        df_filtrato = df[df["Sito"].isin(sito_selezionato)]
-        
-        # Filtro per Stato (ad es. "Attivo")
-        stati = df["Stato"].unique().tolist()
-        stato_selezionato = st.sidebar.multiselect("Filtra per Stato", options=stati, default=stati)
-        df_filtrato = df_filtrato[df_filtrato["Stato"].isin(stato_selezionato)]
-        
-        # Filtro per Quantità (utilizzo di uno slider)
-        try:
-            quantita_min = int(df["Quantita"].min())
-            quantita_max = int(df["Quantita"].max())
-        except Exception:
-            quantita_min, quantita_max = 0, 100  # default in caso di errore
-        quantita_range = st.sidebar.slider("Quantità in magazzino", min_value=quantita_min, max_value=quantita_max, value=(quantita_min, quantita_max))
-        df_filtrato = df_filtrato[(df_filtrato["Quantita"] >= quantita_range[0]) &
-                                  (df_filtrato["Quantita"] <= quantita_range[1])]
-        
-        # Filtro testuale per Nome prodotto (ricerca nel campo "Nome prodotto")
-        nome_input = st.sidebar.text_input("Cerca per Nome prodotto", "")
-        if nome_input:
-            df_filtrato = df_filtrato[df_filtrato["Nome prodotto"].str.contains(nome_input, case=False, na=False)]
-        
-        # Ordinamento per differenza percentuale
-        ordinamento = st.sidebar.selectbox("Ordina per Differenza %", options=["Decrescente", "Crescente"])
-        ascending = True if ordinamento == "Crescente" else False
-        df_filtrato = df_filtrato.sort_values("Differenza %", ascending=ascending)
-        
-        # Visualizzazione del DataFrame filtrato
-        st.dataframe(df_filtrato[["ASIN", "Nome prodotto", "SKU", "Sito", "Stato", "Quantita", 
-                                  "Prezzo di vendita attuale", "Prezzo attuale su Amazon", "Differenza %", "Stato Prodotto"]])
-        
-        ### Visualizzazione grafica ###
+        ### Visualizzazione grafica: Istogramma della differenza percentuale
         st.subheader("Distribuzione della Differenza Percentuale")
         fig, ax = plt.subplots()
-        ax.hist(df_filtrato["Differenza %"].dropna(), bins=20, color="skyblue", edgecolor="black")
+        ax.hist(df["Differenza %"].dropna(), bins=20, color="skyblue", edgecolor="black")
         ax.set_xlabel("Differenza %")
         ax.set_ylabel("Numero di prodotti")
         ax.set_title("Istogramma della Differenza Percentuale")
         st.pyplot(fig)
         
-        ### Esportazione del report ###
+        ### Esportazione del report
         st.subheader("Esporta Report")
-        
         # Esportazione in CSV
-        csv = df_filtrato.to_csv(index=False).encode('utf-8')
+        csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(label="Download CSV", data=csv, file_name="report.csv", mime="text/csv")
         
         # Esportazione in Excel
         output = io.BytesIO()
         writer = pd.ExcelWriter(output, engine="xlsxwriter")
-        df_filtrato.to_excel(writer, index=False, sheet_name="Report")
+        df.to_excel(writer, index=False, sheet_name="Report")
         writer.save()
-        processed_data = output.getvalue()
-        st.download_button(label="Download Excel", data=processed_data, file_name="report.xlsx", 
+        st.download_button(label="Download Excel", data=output.getvalue(), file_name="report.xlsx", 
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-        
-        ### Storico delle variazioni di prezzo (se disponibili) ###
-        st.subheader("Storico Prezzi")
-        st.markdown("Visualizzazione dei dati storici: Prezzo minimo storico, Prezzo medio ultimi 90 giorni e Prezzo massimo storico")
-        storico_cols = ["ASIN", "Nome prodotto", "Prezzo minimo storico", "Prezzo medio ultimi 90 giorni", "Prezzo massimo storico"]
-        if set(storico_cols).issubset(df.columns):
-            st.dataframe(df[storico_cols])
-        else:
-            st.info("I dati storici non sono disponibili nel file Keepa.")
-
 else:
-    st.info("Attendere il caricamento dei file CSV di Ready Pro e Keepa.")
+    st.info("Attendere il caricamento dei file Ready Pro e Keepa.")
