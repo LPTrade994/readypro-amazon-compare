@@ -40,10 +40,8 @@ if ready_pro_file is not None and keepa_file is not None:
             # Usa openpyxl per file .xlsx
             df_ready = pd.read_excel(ready_pro_file, engine="openpyxl")
         else:
-            # In alternativa, se non è Excel, proviamo a leggere come CSV
             df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
-        # Pulizia dei nomi delle colonne: rimuove spazi indesiderati
-        df_ready.columns = df_ready.columns.str.strip()
+        df_ready.columns = df_ready.columns.str.strip()  # rimuove spazi indesiderati
         st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
         st.error("Errore nella lettura del file Ready Pro: " + str(e))
@@ -60,8 +58,7 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Mapping delle colonne per Ready Pro
-    # Le colonne attese in Ready Pro sono:
-    # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
+    # Le colonne attese sono: "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
     if "Codice(ASIN)" in df_ready.columns:
         df_ready.rename(columns={"Codice(ASIN)": "ASIN"}, inplace=True)
     else:
@@ -104,14 +101,12 @@ if ready_pro_file is not None and keepa_file is not None:
         except Exception as e:
             st.error("Errore durante il merge dei dati: " + str(e))
         
-        ### Calcolo della variazione percentuale
+        ### Calcolo della variazione percentuale e stato iniziale
         try:
-            df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) /
-                                  df["Prezzo di vendita attuale"]) * 100
+            df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) / df["Prezzo di vendita attuale"]) * 100
         except Exception as e:
             st.error("Errore nel calcolo della differenza percentuale: " + str(e))
         
-        ### Definizione dello stato del prodotto
         def calcola_stato(diff):
             if diff < -10:
                 return "Fuori Mercato"
@@ -119,20 +114,58 @@ if ready_pro_file is not None and keepa_file is not None:
                 return "Margine Insufficiente"
             else:
                 return "Competitivo"
+        
         try:
             df["Stato Prodotto"] = df["Differenza %"].apply(calcola_stato)
         except Exception as e:
             st.error("Errore nel calcolo dello stato del prodotto: " + str(e))
         
-        ### Visualizzazione dei dati analizzati
-        st.subheader("Dati Analizzati")
         colonne_visualizzate = [
             "ASIN", "Nome prodotto", "Quantita", "Prezzo di vendita attuale",
             "Prezzo attuale su Amazon", "Differenza %", "Stato Prodotto"
         ]
+        
+        ### Filtri interattivi (sidebar)
+        st.sidebar.subheader("Filtra Risultati")
+        stati = df["Stato Prodotto"].unique().tolist()
+        selected_stati = st.sidebar.multiselect("Seleziona Stato Prodotto", options=stati, default=stati)
+        min_diff, max_diff = st.sidebar.slider("Intervallo Differenza %", min_value=-100.0, max_value=100.0, value=(-100.0, 100.0), step=1.0)
+        filtered_df = df[(df["Stato Prodotto"].isin(selected_stati)) & (df["Differenza %"] >= min_diff) & (df["Differenza %"] <= max_diff)]
+        
+        st.subheader("Dati Analizzati")
+        st.dataframe(filtered_df[colonne_visualizzate])
+        
+        ### Sezione per modificare i prezzi
+        st.subheader("Modifica Prezzi e Applica Modifiche di Massa")
+        # Visualizza un data editor per modificare direttamente i prezzi (ed eventuali altri campi)
+        edited_df = st.data_editor(filtered_df, key="editor", num_rows="dynamic")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            if st.button("Allinea a Prezzo di Mercato"):
+                # Imposta il prezzo di vendita uguale al prezzo attuale su Amazon per le righe modificate
+                edited_df["Prezzo di vendita attuale"] = edited_df["Prezzo attuale su Amazon"]
+                st.success("Prezzi allineati al mercato!")
+        with col2:
+            new_price = st.number_input("Imposta Nuovo Prezzo per tutte le righe filtrate", min_value=0.0, step=0.1)
+            if st.button("Applica Modifica di Massa"):
+                edited_df["Prezzo di vendita attuale"] = new_price
+                st.success("Modifica di massa applicata!")
+        
+        if st.button("Aggiorna Calcoli"):
+            try:
+                edited_df["Differenza %"] = ((edited_df["Prezzo attuale su Amazon"] - edited_df["Prezzo di vendita attuale"]) / edited_df["Prezzo di vendita attuale"]) * 100
+                edited_df["Stato Prodotto"] = edited_df["Differenza %"].apply(calcola_stato)
+                # Aggiorna il DataFrame globale con le modifiche (usando l'ASIN per identificare le righe)
+                df.update(edited_df)
+                st.success("Calcoli aggiornati!")
+            except Exception as e:
+                st.error("Errore nell'aggiornamento dei calcoli: " + str(e))
+        
+        st.subheader("Dati Aggiornati")
         st.dataframe(df[colonne_visualizzate])
         
-        ### Visualizzazione grafica: Istogramma della differenza percentuale
+        ### Istogramma della differenza percentuale
         st.subheader("Distribuzione della Differenza Percentuale")
         fig, ax = plt.subplots()
         ax.hist(df["Differenza %"].dropna(), bins=20, color="skyblue", edgecolor="black")
@@ -149,7 +182,7 @@ if ready_pro_file is not None and keepa_file is not None:
         output = io.BytesIO()
         writer = pd.ExcelWriter(output, engine="xlsxwriter")
         df.to_excel(writer, index=False, sheet_name="Report")
-        writer.save()
+        writer.close()  # Utilizza writer.close() invece di writer.save()
         st.download_button(label="Download Excel", data=output.getvalue(),
                            file_name="report.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
