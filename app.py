@@ -33,12 +33,11 @@ def parse_price(price_str):
 if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
-        # Utilizziamo l'auto-detection del delimitatore impostando sep=None e engine="python"
+        # Utilizziamo l'auto-detection del delimitatore (sep=None, engine="python")
         df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
-        # Visualizza le colonne caricate (utile per debug)
-        st.write("Colonne Ready Pro:", df_ready.columns.tolist())
-        # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
+        # Rimuovo eventuali spazi indesiderati nei nomi delle colonne
         df_ready.columns = df_ready.columns.str.strip()
+        st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
         st.error("Errore nella lettura del file Ready Pro: " + str(e))
     
@@ -47,28 +46,42 @@ if ready_pro_file is not None and keepa_file is not None:
         if keepa_file.name.endswith('.xlsx'):
             df_keepa = pd.read_excel(keepa_file)
         else:
-            # Anche per il file CSV di Keepa usiamo l'auto-detection del delimitatore
             df_keepa = pd.read_csv(keepa_file, sep=None, engine="python")
-        st.write("Colonne Keepa:", df_keepa.columns.tolist())
-        # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
         df_keepa.columns = df_keepa.columns.str.strip()
+        st.write("Colonne Keepa:", df_keepa.columns.tolist())
     except Exception as e:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
-    ### Rinomina delle colonne del file Ready Pro
-    # Le colonne attese in Ready Pro sono:
-    # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
-    try:
-        df_ready.rename(columns={
-            "Codice(ASIN)": "ASIN",
-            "Descrizione sul marketplace": "Nome prodotto",
-            "Quantita'": "Quantita",
-            "Prezzo": "Prezzo di vendita attuale"
-        }, inplace=True)
-    except Exception as e:
-        st.error("Errore nella rinomina delle colonne di Ready Pro: " + str(e))
+    ### Mapping delle colonne per Ready Pro
+    # Adattiamo il mapping in base alle colonne presenti.
+    # Nel tuo esempio, le colonne presenti sono: "Descrizione" e "Cod.Barre"
+    if "Cod.Barre" in df_ready.columns:
+        df_ready.rename(columns={"Cod.Barre": "ASIN"}, inplace=True)
+    else:
+        st.error("Il file Ready Pro non contiene la colonna 'Cod.Barre' necessaria per l'ASIN.")
     
-    ### Converte i prezzi in Ready Pro in numerico
+    if "Descrizione" in df_ready.columns:
+        df_ready.rename(columns={"Descrizione": "Nome prodotto"}, inplace=True)
+    
+    # Se esiste la colonna 'Prezzo', rinominala; altrimenti segnala l'errore
+    if "Prezzo" in df_ready.columns:
+        df_ready.rename(columns={"Prezzo": "Prezzo di vendita attuale"}, inplace=True)
+    else:
+        st.error("Il file Ready Pro non contiene la colonna 'Prezzo'. È necessaria per il calcolo.")
+    
+    # Se esiste la colonna "Quantita'", rinominala; altrimenti crea una colonna con NaN
+    if "Quantita'" in df_ready.columns:
+        df_ready.rename(columns={"Quantita'": "Quantita"}, inplace=True)
+    else:
+        df_ready["Quantita"] = np.nan
+
+    # Verifica che le colonne critiche siano presenti
+    if "ASIN" not in df_ready.columns:
+        st.error("Il file Ready Pro non contiene la colonna ASIN.")
+    if "Prezzo di vendita attuale" not in df_ready.columns:
+        st.error("Il file Ready Pro non contiene la colonna 'Prezzo di vendita attuale'.")
+    
+    ### Parsing del prezzo in Ready Pro
     try:
         df_ready["Prezzo di vendita attuale"] = df_ready["Prezzo di vendita attuale"].apply(parse_price)
     except Exception as e:
@@ -79,11 +92,11 @@ if ready_pro_file is not None and keepa_file is not None:
     if "Buy Box: Current" in df_keepa.columns:
         df_keepa["Prezzo attuale su Amazon"] = df_keepa["Buy Box: Current"].apply(parse_price)
     else:
-        st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa. Modifica l'esportazione o aggiorna il mapping.")
+        st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa.")
     
-    # Verifica che il file Keepa contenga la colonna "ASIN" per effettuare il merge
+    # Verifica che il file Keepa contenga la colonna "ASIN"
     if "ASIN" not in df_keepa.columns:
-        st.error("La colonna 'ASIN' non è presente nel file Keepa.")
+        st.error("Il file Keepa non contiene la colonna 'ASIN'.")
     else:
         ### Merge dei DataFrame sulla colonna "ASIN"
         try:
@@ -105,7 +118,10 @@ if ready_pro_file is not None and keepa_file is not None:
                 return "Margine Insufficiente"
             else:
                 return "Competitivo"
-        df["Stato Prodotto"] = df["Differenza %"].apply(calcola_stato)
+        try:
+            df["Stato Prodotto"] = df["Differenza %"].apply(calcola_stato)
+        except Exception as e:
+            st.error("Errore nel calcolo dello stato del prodotto: " + str(e))
         
         ### Visualizzazione dei dati analizzati
         st.subheader("Dati Analizzati")
@@ -126,11 +142,9 @@ if ready_pro_file is not None and keepa_file is not None:
         
         ### Esportazione del report
         st.subheader("Esporta Report")
-        # Esportazione in CSV
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(label="Download CSV", data=csv, file_name="report.csv", mime="text/csv")
         
-        # Esportazione in Excel
         output = io.BytesIO()
         writer = pd.ExcelWriter(output, engine="xlsxwriter")
         df.to_excel(writer, index=False, sheet_name="Report")
