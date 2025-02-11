@@ -10,7 +10,7 @@ st.title("Price Monitoring App per HDGaming.it")
 st.markdown("Confronta i prezzi dei prodotti di Ready Pro con quelli attuali di Amazon (Keepa)")
 
 st.sidebar.header("Caricamento File")
-# Carica il file Ready Pro (XLS o XLSX)
+# Carica il file Ready Pro (Excel: .xls o .xlsx)
 ready_pro_file = st.sidebar.file_uploader("Carica file Ready Pro (XLS o XLSX)", type=["xls", "xlsx"])
 # Carica il file Keepa (Excel o CSV)
 keepa_file = st.sidebar.file_uploader("Carica file Keepa (Excel o CSV)", type=["xlsx", "csv"])
@@ -33,12 +33,16 @@ def parse_price(price_str):
 if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
-        # Se il file Ready Pro è in formato Excel, lo leggiamo con read_excel
-        if ready_pro_file.name.endswith(('.xls', '.xlsx')):
-            df_ready = pd.read_excel(ready_pro_file)
+        if ready_pro_file.name.endswith('.xls'):
+            # Usa xlrd per file .xls
+            df_ready = pd.read_excel(ready_pro_file, engine="xlrd")
+        elif ready_pro_file.name.endswith('.xlsx'):
+            # Usa openpyxl per file .xlsx
+            df_ready = pd.read_excel(ready_pro_file, engine="openpyxl")
         else:
-            df_ready = pd.read_csv(ready_pro_file)
-        # Pulizia dei nomi delle colonne (rimozione di eventuali spazi)
+            # In alternativa, se non è Excel, proviamo a leggere come CSV
+            df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
+        # Pulizia dei nomi delle colonne: rimuove spazi indesiderati
         df_ready.columns = df_ready.columns.str.strip()
         st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
@@ -47,7 +51,7 @@ if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Keepa
     try:
         if keepa_file.name.endswith('.xlsx'):
-            df_keepa = pd.read_excel(keepa_file)
+            df_keepa = pd.read_excel(keepa_file, engine="openpyxl")
         else:
             df_keepa = pd.read_csv(keepa_file, sep=None, engine="python")
         df_keepa.columns = df_keepa.columns.str.strip()
@@ -56,9 +60,8 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Mapping delle colonne per Ready Pro
-    # Il file Ready Pro (secondo il tuo esempio) ha le seguenti colonne:
+    # Le colonne attese in Ready Pro sono:
     # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
-    # Effettuiamo il mapping:
     if "Codice(ASIN)" in df_ready.columns:
         df_ready.rename(columns={"Codice(ASIN)": "ASIN"}, inplace=True)
     else:
@@ -103,7 +106,8 @@ if ready_pro_file is not None and keepa_file is not None:
         
         ### Calcolo della variazione percentuale
         try:
-            df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) / df["Prezzo di vendita attuale"]) * 100
+            df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) /
+                                  df["Prezzo di vendita attuale"]) * 100
         except Exception as e:
             st.error("Errore nel calcolo della differenza percentuale: " + str(e))
         
