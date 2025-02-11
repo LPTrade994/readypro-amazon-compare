@@ -27,14 +27,16 @@ def parse_price(price_str):
         price_str = price_str.replace('€', '').strip()
         price_str = price_str.replace(',', '.')
         return float(price_str)
-    except Exception as e:
+    except Exception:
         return np.nan
 
 if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
-        # Il file Ready Pro, secondo l'esempio, è separato da tab
-        df_ready = pd.read_csv(ready_pro_file, sep='\t')
+        # Utilizziamo l'auto-detection del delimitatore impostando sep=None e engine="python"
+        df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
+        # Visualizza le colonne caricate (utile per debug)
+        st.write("Colonne Ready Pro:", df_ready.columns.tolist())
         # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
         df_ready.columns = df_ready.columns.str.strip()
     except Exception as e:
@@ -45,8 +47,9 @@ if ready_pro_file is not None and keepa_file is not None:
         if keepa_file.name.endswith('.xlsx'):
             df_keepa = pd.read_excel(keepa_file)
         else:
-            # Se il file Keepa è CSV, proviamo a usare anche qui il separatore tab
-            df_keepa = pd.read_csv(keepa_file, sep='\t')
+            # Anche per il file CSV di Keepa usiamo l'auto-detection del delimitatore
+            df_keepa = pd.read_csv(keepa_file, sep=None, engine="python")
+        st.write("Colonne Keepa:", df_keepa.columns.tolist())
         # Rimuovo eventuali spazi indesiderati dai nomi delle colonne
         df_keepa.columns = df_keepa.columns.str.strip()
     except Exception as e:
@@ -55,12 +58,15 @@ if ready_pro_file is not None and keepa_file is not None:
     ### Rinomina delle colonne del file Ready Pro
     # Le colonne attese in Ready Pro sono:
     # "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
-    df_ready.rename(columns={
-        "Codice(ASIN)": "ASIN",
-        "Descrizione sul marketplace": "Nome prodotto",
-        "Quantita'": "Quantita",
-        "Prezzo": "Prezzo di vendita attuale"
-    }, inplace=True)
+    try:
+        df_ready.rename(columns={
+            "Codice(ASIN)": "ASIN",
+            "Descrizione sul marketplace": "Nome prodotto",
+            "Quantita'": "Quantita",
+            "Prezzo": "Prezzo di vendita attuale"
+        }, inplace=True)
+    except Exception as e:
+        st.error("Errore nella rinomina delle colonne di Ready Pro: " + str(e))
     
     ### Converte i prezzi in Ready Pro in numerico
     try:
@@ -75,12 +81,15 @@ if ready_pro_file is not None and keepa_file is not None:
     else:
         st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa. Modifica l'esportazione o aggiorna il mapping.")
     
-    # Verifica che Keepa contenga la colonna "ASIN" per il merge
+    # Verifica che il file Keepa contenga la colonna "ASIN" per effettuare il merge
     if "ASIN" not in df_keepa.columns:
         st.error("La colonna 'ASIN' non è presente nel file Keepa.")
     else:
         ### Merge dei DataFrame sulla colonna "ASIN"
-        df = pd.merge(df_ready, df_keepa, on="ASIN", how="inner")
+        try:
+            df = pd.merge(df_ready, df_keepa, on="ASIN", how="inner")
+        except Exception as e:
+            st.error("Errore durante il merge dei dati: " + str(e))
         
         ### Calcolo della variazione percentuale
         try:
@@ -96,7 +105,6 @@ if ready_pro_file is not None and keepa_file is not None:
                 return "Margine Insufficiente"
             else:
                 return "Competitivo"
-        
         df["Stato Prodotto"] = df["Differenza %"].apply(calcola_stato)
         
         ### Visualizzazione dei dati analizzati
