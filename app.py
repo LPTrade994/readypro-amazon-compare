@@ -34,14 +34,14 @@ if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
         if ready_pro_file.name.endswith('.xls'):
-            # Usa xlrd per file .xls
+            # Usa xlrd per file .xls (assicurarsi di avere xlrd in requirements.txt)
             df_ready = pd.read_excel(ready_pro_file, engine="xlrd")
         elif ready_pro_file.name.endswith('.xlsx'):
             # Usa openpyxl per file .xlsx
             df_ready = pd.read_excel(ready_pro_file, engine="openpyxl")
         else:
             df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
-        df_ready.columns = df_ready.columns.str.strip()  # rimuove spazi indesiderati
+        df_ready.columns = df_ready.columns.str.strip()  # Rimuove spazi indesiderati nei nomi delle colonne
         st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
         st.error("Errore nella lettura del file Ready Pro: " + str(e))
@@ -58,7 +58,7 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Mapping delle colonne per Ready Pro
-    # Le colonne attese sono: "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
+    # Le colonne attese in Ready Pro sono: "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
     if "Codice(ASIN)" in df_ready.columns:
         df_ready.rename(columns={"Codice(ASIN)": "ASIN"}, inplace=True)
     else:
@@ -86,9 +86,9 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nel parsing del prezzo in Ready Pro: " + str(e))
     
     ### Gestione del file Keepa
-    # Utilizziamo la colonna "Buy Box: Current" per ottenere il prezzo attuale su Amazon
+    # Utilizziamo la colonna "Buy Box: Current" come riferimento principale (prezzo + spedizione)
     if "Buy Box: Current" in df_keepa.columns:
-        df_keepa["Prezzo attuale su Amazon"] = df_keepa["Buy Box: Current"].apply(parse_price)
+        df_keepa["Prezzo di riferimento"] = df_keepa["Buy Box: Current"].apply(parse_price)
     else:
         st.error("La colonna 'Buy Box: Current' non è presente nel file Keepa.")
     
@@ -101,9 +101,10 @@ if ready_pro_file is not None and keepa_file is not None:
         except Exception as e:
             st.error("Errore durante il merge dei dati: " + str(e))
         
-        ### Calcolo della variazione percentuale e stato iniziale
+        ### Calcolo della differenza percentuale
         try:
-            df["Differenza %"] = ((df["Prezzo attuale su Amazon"] - df["Prezzo di vendita attuale"]) / df["Prezzo di vendita attuale"]) * 100
+            df["Differenza %"] = ((df["Prezzo di riferimento"] - df["Prezzo di vendita attuale"]) /
+                                  df["Prezzo di vendita attuale"]) * 100
         except Exception as e:
             st.error("Errore nel calcolo della differenza percentuale: " + str(e))
         
@@ -122,7 +123,7 @@ if ready_pro_file is not None and keepa_file is not None:
         
         colonne_visualizzate = [
             "ASIN", "Nome prodotto", "Quantita", "Prezzo di vendita attuale",
-            "Prezzo attuale su Amazon", "Differenza %", "Stato Prodotto"
+            "Prezzo di riferimento", "Differenza %", "Stato Prodotto"
         ]
         
         ### Filtri interattivi (sidebar)
@@ -136,31 +137,32 @@ if ready_pro_file is not None and keepa_file is not None:
         st.dataframe(filtered_df[colonne_visualizzate])
         
         ### Sezione per modificare i prezzi
-        st.subheader("Modifica Prezzi e Applica Modifiche di Massa")
-        # Visualizza un data editor per modificare direttamente i prezzi (ed eventuali altri campi)
+        st.subheader("Modifica Prezzi")
+        # Data editor per modificare individualmente i prezzi (ed altri campi se necessario)
         edited_df = st.data_editor(filtered_df, key="editor", num_rows="dynamic")
         
-        col1, col2 = st.columns(2)
+        col1, col2, col3 = st.columns(3)
         with col1:
             if st.button("Allinea a Prezzo di Mercato"):
-                # Imposta il prezzo di vendita uguale al prezzo attuale su Amazon per le righe modificate
-                edited_df["Prezzo di vendita attuale"] = edited_df["Prezzo attuale su Amazon"]
-                st.success("Prezzi allineati al mercato!")
+                # Imposta il prezzo di vendita uguale al prezzo di riferimento per le righe modificate
+                edited_df["Prezzo di vendita attuale"] = edited_df["Prezzo di riferimento"]
+                st.success("Prezzi allineati al prezzo di riferimento!")
         with col2:
             new_price = st.number_input("Imposta Nuovo Prezzo per tutte le righe filtrate", min_value=0.0, step=0.1)
             if st.button("Applica Modifica di Massa"):
                 edited_df["Prezzo di vendita attuale"] = new_price
                 st.success("Modifica di massa applicata!")
-        
-        if st.button("Aggiorna Calcoli"):
-            try:
-                edited_df["Differenza %"] = ((edited_df["Prezzo attuale su Amazon"] - edited_df["Prezzo di vendita attuale"]) / edited_df["Prezzo di vendita attuale"]) * 100
-                edited_df["Stato Prodotto"] = edited_df["Differenza %"].apply(calcola_stato)
-                # Aggiorna il DataFrame globale con le modifiche (usando l'ASIN per identificare le righe)
-                df.update(edited_df)
-                st.success("Calcoli aggiornati!")
-            except Exception as e:
-                st.error("Errore nell'aggiornamento dei calcoli: " + str(e))
+        with col3:
+            if st.button("Aggiorna Calcoli"):
+                try:
+                    edited_df["Differenza %"] = ((edited_df["Prezzo di riferimento"] - edited_df["Prezzo di vendita attuale"]) /
+                                                  edited_df["Prezzo di vendita attuale"]) * 100
+                    edited_df["Stato Prodotto"] = edited_df["Differenza %"].apply(calcola_stato)
+                    # Aggiorna il DataFrame globale (usando ASIN come chiave)
+                    df.update(edited_df)
+                    st.success("Calcoli aggiornati!")
+                except Exception as e:
+                    st.error("Errore nell'aggiornamento dei calcoli: " + str(e))
         
         st.subheader("Dati Aggiornati")
         st.dataframe(df[colonne_visualizzate])
