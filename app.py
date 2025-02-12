@@ -34,14 +34,12 @@ if ready_pro_file is not None and keepa_file is not None:
     ### Lettura del file Ready Pro
     try:
         if ready_pro_file.name.endswith('.xls'):
-            # Usa xlrd per file .xls (assicurarsi di avere xlrd in requirements.txt)
             df_ready = pd.read_excel(ready_pro_file, engine="xlrd")
         elif ready_pro_file.name.endswith('.xlsx'):
-            # Usa openpyxl per file .xlsx
             df_ready = pd.read_excel(ready_pro_file, engine="openpyxl")
         else:
             df_ready = pd.read_csv(ready_pro_file, sep=None, engine="python")
-        df_ready.columns = df_ready.columns.str.strip()  # Rimuove spazi indesiderati nei nomi delle colonne
+        df_ready.columns = df_ready.columns.str.strip()
         st.write("Colonne Ready Pro:", df_ready.columns.tolist())
     except Exception as e:
         st.error("Errore nella lettura del file Ready Pro: " + str(e))
@@ -58,7 +56,7 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nella lettura del file Keepa: " + str(e))
     
     ### Mapping delle colonne per Ready Pro
-    # Le colonne attese in Ready Pro sono: "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
+    # Le colonne attese in Ready Pro: "Sito", "Stato", "Codice(ASIN)", "Descrizione sul marketplace", "SKU", "Descrizione", "Quantita'" e "Prezzo"
     if "Codice(ASIN)" in df_ready.columns:
         df_ready.rename(columns={"Codice(ASIN)": "ASIN"}, inplace=True)
     else:
@@ -86,7 +84,7 @@ if ready_pro_file is not None and keepa_file is not None:
         st.error("Errore nel parsing del prezzo in Ready Pro: " + str(e))
     
     ### Gestione del file Keepa
-    # Utilizziamo la colonna "Buy Box: Current" come riferimento principale (prezzo + spedizione)
+    # Utilizziamo la colonna "Buy Box: Current" come riferimento principale
     if "Buy Box: Current" in df_keepa.columns:
         df_keepa["Prezzo di riferimento"] = df_keepa["Buy Box: Current"].apply(parse_price)
     else:
@@ -121,6 +119,10 @@ if ready_pro_file is not None and keepa_file is not None:
         except Exception as e:
             st.error("Errore nel calcolo dello stato del prodotto: " + str(e))
         
+        # Se disponibile, includi anche la colonna "Sito"
+        if "Sito" not in df.columns and "Sito" in df_ready.columns:
+            df["Sito"] = df_ready["Sito"]
+        
         colonne_visualizzate = [
             "ASIN", "Nome prodotto", "Quantita", "Prezzo di vendita attuale",
             "Prezzo di riferimento", "Differenza %", "Stato Prodotto"
@@ -138,27 +140,33 @@ if ready_pro_file is not None and keepa_file is not None:
         
         ### Sezione per modificare i prezzi
         st.subheader("Modifica Prezzi")
-        # Data editor per modificare individualmente i prezzi (ed altri campi se necessario)
+        # Data editor per modificare individualmente i prezzi
         edited_df = st.data_editor(filtered_df, key="editor", num_rows="dynamic")
         
-        col1, col2, col3 = st.columns(3)
+        # Organizza i bottoni per le modifiche in 4 colonne
+        col1, col2, col3, col4 = st.columns(4)
         with col1:
-            if st.button("Allinea a Prezzo di Mercato"):
-                # Imposta il prezzo di vendita uguale al prezzo di riferimento per le righe modificate
+            if st.button("Allinea esattamente"):
+                # Imposta il prezzo di vendita uguale al prezzo di riferimento
                 edited_df["Prezzo di vendita attuale"] = edited_df["Prezzo di riferimento"]
-                st.success("Prezzi allineati al prezzo di riferimento!")
+                st.success("Prezzi allineati esattamente al prezzo di riferimento!")
         with col2:
+            if st.button("Allinea a -0,10€"):
+                # Imposta il prezzo di vendita a prezzo di riferimento meno 0,10€
+                edited_df["Prezzo di vendita attuale"] = edited_df["Prezzo di riferimento"] - 0.10
+                st.success("Prezzi allineati a prezzo di riferimento - 0,10€!")
+        with col3:
             new_price = st.number_input("Imposta Nuovo Prezzo per tutte le righe filtrate", min_value=0.0, step=0.1)
             if st.button("Applica Modifica di Massa"):
                 edited_df["Prezzo di vendita attuale"] = new_price
                 st.success("Modifica di massa applicata!")
-        with col3:
+        with col4:
             if st.button("Aggiorna Calcoli"):
                 try:
                     edited_df["Differenza %"] = ((edited_df["Prezzo di riferimento"] - edited_df["Prezzo di vendita attuale"]) /
                                                   edited_df["Prezzo di vendita attuale"]) * 100
                     edited_df["Stato Prodotto"] = edited_df["Differenza %"].apply(calcola_stato)
-                    # Aggiorna il DataFrame globale (usando ASIN come chiave)
+                    # Aggiorna il DataFrame globale utilizzando l'ASIN come chiave
                     df.update(edited_df)
                     st.success("Calcoli aggiornati!")
                 except Exception as e:
@@ -166,6 +174,17 @@ if ready_pro_file is not None and keepa_file is not None:
         
         st.subheader("Dati Aggiornati")
         st.dataframe(df[colonne_visualizzate])
+        
+        ### Sezione Statistiche di Pricing
+        st.subheader("Statistiche di Pricing")
+        total_products = df.shape[0]
+        avg_sale_price = df["Prezzo di vendita attuale"].mean()
+        avg_ref_price = df["Prezzo di riferimento"].mean()
+        avg_diff = df["Differenza %"].mean()
+        st.write(f"Numero totale di prodotti: {total_products}")
+        st.write(f"Prezzo di vendita medio: €{avg_sale_price:.2f}")
+        st.write(f"Prezzo di riferimento medio: €{avg_ref_price:.2f}")
+        st.write(f"Differenza percentuale media: {avg_diff:.2f}%")
         
         ### Istogramma della differenza percentuale
         st.subheader("Distribuzione della Differenza Percentuale")
