@@ -42,9 +42,6 @@ if ready_pro_file is not None:
     # Verifica e rinomina le colonne essenziali in ReadyPro
     if "Codice(ASIN)" in df_ready.columns:
         df_ready.rename(columns={"Codice(ASIN)":"ASIN"}, inplace=True)
-        unique_asin = df_ready["ASIN"].unique()
-        st.subheader("Lista Completa di ASIN")
-        st.write(unique_asin)
     else:
         st.error("Il file ReadyPro deve contenere la colonna 'Codice(ASIN)'.")
     
@@ -63,11 +60,19 @@ if ready_pro_file is not None:
     else:
         st.error("Il file ReadyPro deve contenere la colonna 'Prz.sito'.")
     
+    # Verifica che la colonna Sito sia presente
+    if "Sito" not in df_ready.columns:
+        st.error("Il file ReadyPro deve contenere la colonna 'Sito'.")
+    
     # Parsing del prezzo in ReadyPro
     try:
         df_ready["Prezzo di vendita attuale"] = df_ready["Prezzo di vendita attuale"].apply(parse_price)
     except Exception as e:
         st.error("Errore nel parsing del prezzo in ReadyPro: " + str(e))
+    
+    # Debug: mostra valori unici per ASIN e Sito in ReadyPro
+    st.write("Unique ASIN in ReadyPro:", df_ready["ASIN"].unique())
+    st.write("Unique Sito in ReadyPro:", df_ready["Sito"].unique())
 
 # Elaborazione file Keepa
 if keepa_files is not None and len(keepa_files) > 0:
@@ -99,7 +104,12 @@ if keepa_files is not None and len(keepa_files) > 0:
 else:
     df_keepa = None
 
-# Se entrambi i file sono disponibili, esegui il merge e l'analisi
+if keepa_files is not None and df_keepa is not None:
+    # Debug: mostra valori unici per ASIN e Sito in Keepa
+    st.write("Unique ASIN in Keepa:", df_keepa["ASIN"].unique())
+    st.write("Unique Sito in Keepa:", df_keepa["Sito"].unique())
+
+# Merge e analisi (solo se entrambi i file sono disponibili)
 if ready_pro_file is not None and df_keepa is not None:
     try:
         # Esegui il merge sui campi ASIN e Sito
@@ -108,9 +118,8 @@ if ready_pro_file is not None and df_keepa is not None:
         st.error("Errore durante il merge dei dati: " + str(e))
         df = None
 
-    if df is not None:
+    if df is not None and not df.empty:
         try:
-            # Calcola la differenza percentuale
             df["Differenza %"] = ((df["Prezzo di riferimento"] - df["Prezzo di vendita attuale"]) /
                                   df["Prezzo di vendita attuale"]) * 100
         except Exception as e:
@@ -129,7 +138,6 @@ if ready_pro_file is not None and df_keepa is not None:
         except Exception as e:
             st.error("Errore nel calcolo dello stato del prodotto: " + str(e))
         
-        # Colonne da visualizzare (necessarie per aggiornare le inserzioni da ReadyPro)
         colonne_visualizzate = [
             "SKU", "Sito", "ASIN", "Descrizione", "Quantita",
             "Prezzo di vendita attuale", "Prezzo di riferimento",
@@ -139,7 +147,6 @@ if ready_pro_file is not None and df_keepa is not None:
         st.subheader("Dati Analizzati")
         st.dataframe(df[colonne_visualizzate])
         
-        # Filtri interattivi
         st.sidebar.subheader("Filtra Risultati")
         stati = df["Stato Prodotto"].unique().tolist()
         selected_stati = st.sidebar.multiselect("Seleziona Stato Prodotto", options=stati, default=stati)
@@ -151,7 +158,6 @@ if ready_pro_file is not None and df_keepa is not None:
         st.subheader("Risultati Filtrati")
         st.dataframe(filtered_df[colonne_visualizzate])
         
-        # Sezione per modificare i prezzi
         st.subheader("Modifica Prezzi")
         edited_df = st.data_editor(filtered_df, key="editor", num_rows="dynamic")
         
@@ -183,7 +189,6 @@ if ready_pro_file is not None and df_keepa is not None:
         st.subheader("Dati Aggiornati")
         st.dataframe(df[colonne_visualizzate])
         
-        # Statistiche di Pricing
         st.subheader("Statistiche di Pricing")
         total_products = df.shape[0]
         avg_sale_price = df["Prezzo di vendita attuale"].mean()
@@ -194,7 +199,6 @@ if ready_pro_file is not None and df_keepa is not None:
         st.write(f"Prezzo di riferimento medio: €{avg_ref_price:.2f}")
         st.write(f"Differenza percentuale media: {avg_diff:.2f}%")
         
-        # Istogramma della differenza percentuale
         st.subheader("Distribuzione della Differenza Percentuale")
         fig, ax = plt.subplots()
         ax.hist(df["Differenza %"].dropna(), bins=20, edgecolor="black")
@@ -203,7 +207,6 @@ if ready_pro_file is not None and df_keepa is not None:
         ax.set_title("Istogramma della Differenza Percentuale")
         st.pyplot(fig)
         
-        # Esportazione del report
         st.subheader("Esporta Report")
         csv = df.to_csv(index=False).encode("utf-8")
         st.download_button(label="Download CSV", data=csv, file_name="report.csv", mime="text/csv")
@@ -216,6 +219,6 @@ if ready_pro_file is not None and df_keepa is not None:
                            file_name="report.xlsx",
                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
     else:
-        st.info("Impossibile eseguire l'analisi perché il merge dei dati non è andato a buon fine.")
+        st.info("Il merge non ha restituito dati. Verifica che i valori nelle colonne 'ASIN' e 'Sito' siano coerenti tra i file.")
 else:
     st.info("Attendere il caricamento del file ReadyPro e dei file Keepa.")
