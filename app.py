@@ -33,7 +33,8 @@ def parse_price(price_str):
 # Se il file ReadyPro è caricato, leggi e mostra la lista completa degli ASIN
 if ready_pro_file is not None:
     try:
-        df_ready = pd.read_csv(ready_pro_file, delimiter=";")
+        # Specifica un encoding differente (latin1) per gestire i caratteri non UTF-8
+        df_ready = pd.read_csv(ready_pro_file, delimiter=";", encoding="latin1")
         df_ready.columns = df_ready.columns.str.strip()
     except Exception as e:
         st.error("Errore nella lettura del file ReadyPro: " + str(e))
