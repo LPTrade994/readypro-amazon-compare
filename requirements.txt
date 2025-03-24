@@ -1,7 +1,6 @@
-openpyxl
-xlrd
+streamlit
 pandas
 numpy
 matplotlib
-streamlit
-xlsxwriter
+openpyxl
+XlsxWriter
